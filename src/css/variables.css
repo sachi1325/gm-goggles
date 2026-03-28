@@ -1,0 +1,20 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #1f2937;
+  --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.14);
+  --text: #e6edf3;
+  --text2: #8b949e;
+  --text3: #6e7681;
+  --teal: #26d9a8;
+  --teal-dim: #0d4d39;
+  --amber: #f0a832;
+  --amber-dim: #4a2e00;
+  --red: #f85149;
+  --red-dim: #4a0f0f;
+  --blue: #58a6ff;
+  --sidebar: 220px;
+}

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://api.anthropic.com;">
+<title>CGM Dashboard</title>
+
+<!-- Styles -->
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/profiles.css">
+
+<!-- Third-party libraries (local, from node_modules) -->
+<script src="../node_modules/papaparse/papaparse.min.js"></script>
+<script src="../node_modules/chart.js/dist/chart.umd.js"></script>
+<script src="../node_modules/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+
+<!-- Profile Picker Screen -->
+<div id="profileScreen">
+  <div class="ps-logo">
+    <div class="ps-logo-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+    </div>
+    <div class="ps-logo-name">CGM Dashboard</div>
+    <div class="ps-logo-sub">Who is using the app?</div>
+  </div>
+  <div class="ps-title">Select profile</div>
+  <div class="ps-grid" id="profileGrid"></div>
+</div>
+
+<!-- New Profile Modal -->
+<div id="newProfileModal" class="hidden">
+  <div class="npm-box">
+    <div class="npm-title">Create profile</div>
+    <div class="npm-label">Name</div>
+    <input class="npm-input" id="npmName" placeholder="e.g. Sarah" maxlength="32">
+    <div class="npm-label">Colour</div>
+    <div class="npm-colors" id="npmColors"></div>
+    <div class="npm-actions">
+      <button class="npm-cancel" onclick="hideNewProfileModal()">Cancel</button>
+      <button class="npm-save" onclick="createProfile()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Title bar -->
+<div class="titlebar" id="titlebar">
+  <div class="titlebar-title">CGM Dashboard</div>
+  <div class="titlebar-actions">
+    <button class="tb-btn" onclick="window.electronAPI.openFileDialog()">Open CSV</button>
+    <button class="tb-btn" onclick="loadDemo()">Demo Data</button>
+  </div>
+</div>
+
+<div class="app-body">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+      </div>
+      <div class="logo-name">CGM Dashboard</div>
+      <div class="logo-sub">v1.0.0</div>
+      <div style="margin-top:4px;font-size:9px;color:var(--text3)">Format: <span id="formatBadge" style="color:var(--teal)">—</span></div>
+    </div>
+
+    <div class="profile-chip" onclick="showProfileScreen()" title="Switch profile">
+      <div class="profile-chip-avatar" id="sidebarAvatar"></div>
+      <div class="profile-chip-info">
+        <div class="profile-chip-name" id="sidebarProfileName">—</div>
+        <div class="profile-chip-sub">Switch profile</div>
+      </div>
+      <div class="profile-chip-switch">⇄</div>
+    </div>
+
+    <div class="nav-item active" data-page="overview">
+      <span class="nav-icon">◈</span> Overview
+    </div>
+    <div class="nav-item" data-page="trends">
+      <span class="nav-icon">∿</span> Glucose Trace
+    </div>
+    <div class="nav-item" data-page="patterns">
+      <span class="nav-icon">◎</span> Patterns
+    </div>
+    <div class="nav-item" data-page="daily">
+      <span class="nav-icon">⊞</span> Daily Heatmap
+    </div>
+    <div class="nav-item" data-page="ai">
+      <span class="nav-icon">✦</span> AI Insights
+    </div>
+    <div class="nav-item" data-page="settings">
+      <span class="nav-icon">⚙</span> Settings
+    </div>
+
+    <div class="sidebar-files">
+      <div class="sidebar-files-header">
+        <span>Data Files</span>
+        <button class="open-btn" onclick="window.electronAPI.openFileDialog()">+ Open</button>
+      </div>
+      <div class="file-list" id="fileList">
+        <div class="file-list-empty">No files yet.<br>Open a CSV to get started.</div>
+      </div>
+    </div>
+
+    <div class="sidebar-bottom">
+      <button class="api-key-btn" onclick="showApiModal()">
+        <div class="api-key-dot" id="apiDot"></div>
+        <span id="apiKeyStatus">API key not set</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- Overview Page -->
+    <div class="page active" id="page-overview">
+      <div id="noData">
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-icon">📊</div>
+          <div class="upload-title">Drop your CGM export here</div>
+          <div class="upload-sub">Files are saved to your local library and available in the sidebar.</div>
+          <div class="upload-formats">
+            <span class="tag">LingoFormat</span>
+            <span class="tag">LibreViewFormat</span>
+            <span class="tag">DexcomFormat</span>
+            <span class="tag">GenericFormat</span>
+          </div>
+          <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+            <button class="demo-btn" onclick="window.electronAPI.openFileDialog()">Open CSV file →</button>
+            <button class="demo-btn" onclick="loadDemo()" style="opacity:0.5">Load sample data</button>
+          </div>
+          <div style="margin-top:10px;font-size:10px;color:var(--text3);font-family:'SF Mono','Cascadia Code',Consolas,monospace" id="uploadsDirLabel"></div>
+        </div>
+      </div>
+      <div id="overviewData" class="hidden">
+        <div class="stats" id="statsGrid"></div>
+        <div class="section-header"><span class="section-title">Glucose Trace</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Glucose Trace</span>Your raw glucose readings plotted over time. Green segments are within your target range (70–140 mg/dL), red segments are outside it. The shaded band shows your target zone. Use the time range and resolution buttons to zoom in or smooth the data.</span></i><div class="section-divider"></div></div>
+        <div class="chart-wrap">
+          <div class="chart-top">
+            <div class="range-btns" id="rangeBtns">
+              <button class="range-btn active" data-days="1">24h</button>
+              <button class="range-btn" data-days="3">3d</button>
+              <button class="range-btn" data-days="7">7d</button>
+              <button class="range-btn" data-days="0">All</button>
+            </div>
+            <div class="res-btns" id="resBtns">
+              <button class="res-btn active" data-mins="5">5m</button>
+              <button class="res-btn" data-mins="15">15m</button>
+              <button class="res-btn" data-mins="30">30m</button>
+              <button class="res-btn" data-mins="60">1h</button>
+              <button class="res-btn" data-mins="240">4h</button>
+              <button class="res-btn" data-mins="1440">1d</button>
+            </div>
+            <div class="range-legend" style="margin-left:auto">
+              <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div>Out of range</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#26d9a8"></div>In range</div>
+            </div>
+          </div>
+          <div class="chart-container"><canvas id="glucoseChart"></canvas></div>
+        </div>
+        <div class="section-header"><span class="section-title">Patterns</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Detected Patterns</span>Automatic analysis of your glucose data against clinical guidelines. Checks time-in-range goal (≥70%), hypoglycemia frequency (&lt;4% below 70), hyperglycemia (&lt;25% above 140), glucose variability (CV ≤36%), and dawn phenomenon (early-morning rise).</span></i><div class="section-divider"></div></div>
+        <div class="patterns" id="patternGrid"></div>
+      </div>
+    </div>
+
+    <!-- Glucose Trace Page -->
+    <div class="page" id="page-trends">
+      <div class="section-header"><span class="section-title">Full Glucose Trace</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Full Glucose Trace</span>Your complete glucose history across the selected time window. Resolution buttons (5m, 15m, 1h…) control how readings are averaged into each point — useful for smoothing noisy data over longer periods. Hover any point to see the exact value and time.</span></i><div class="section-divider"></div></div>
+      <div class="chart-wrap">
+        <div class="chart-top">
+          <div class="range-btns" id="rangeBtns2">
+            <button class="range-btn active" data-days="1">24h</button>
+            <button class="range-btn" data-days="3">3d</button>
+            <button class="range-btn" data-days="7">7d</button>
+            <button class="range-btn" data-days="14">14d</button>
+            <button class="range-btn" data-days="0">All</button>
+          </div>
+          <div class="res-btns" id="resBtns2">
+            <button class="res-btn active" data-mins="5">5m</button>
+            <button class="res-btn" data-mins="15">15m</button>
+            <button class="res-btn" data-mins="30">30m</button>
+            <button class="res-btn" data-mins="60">1h</button>
+            <button class="res-btn" data-mins="240">4h</button>
+            <button class="res-btn" data-mins="1440">1d</button>
+          </div>
+          <div class="range-legend" style="margin-left:auto">
+            <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div>Out of range</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#26d9a8"></div>In range</div>
+          </div>
+        </div>
+        <div class="chart-container" style="height:360px"><canvas id="glucoseChart2"></canvas></div>
+      </div>
+
+      <div class="section-header" style="margin-top:24px">
+        <span class="section-title">Daily Time in Range</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Daily Time in Range</span>Each point shows what percentage of that day's readings fell into each zone. The green line (In range) is the main trend — aim for it to stay above the dashed 70% goal line. Amber (High) and red (Low) lines show hyperglycemia and hypoglycemia burden. Use the toggle buttons to show/hide individual lines.</span></i>
+        <div class="section-divider"></div>
+        <div style="display:flex;gap:6px;margin-left:12px" id="tirToggles">
+          <button class="tir-toggle active" data-series="0" style="--tc:#f85149">
+            <span class="tir-toggle-dot"></span>Low
+          </button>
+          <button class="tir-toggle active" data-series="1" style="--tc:#26d9a8">
+            <span class="tir-toggle-dot"></span>In range
+          </button>
+          <button class="tir-toggle active" data-series="2" style="--tc:#f0a832">
+            <span class="tir-toggle-dot"></span>High
+          </button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div id="tirChartWrap" style="position:relative;width:100%;"></div>
+      </div>
+    </div>
+
+    <!-- Patterns Page -->
+    <div class="page" id="page-patterns">
+      <div class="section-header"><span class="section-title">Detected Patterns</span><div class="section-divider"></div></div>
+      <div class="patterns" id="patternGrid2" style="grid-template-columns:1fr;"></div>
+    </div>
+
+    <!-- Daily Heatmap Page -->
+    <div class="page" id="page-daily">
+      <div class="section-header">
+        <span class="section-title">Hourly Average Glucose</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Hourly Average Glucose</span>A heatmap showing your average glucose for each hour of the day (midnight to 11 PM), averaged across the selected time range. Green = in range, amber = high, red = low. Darker/brighter cells indicate readings further from the centre of your target range. Hover a cell to see the exact average.</span></i>
+        <div class="section-divider"></div>
+        <div class="range-btns" id="dailyRangeBtns" style="margin-left:8px">
+          <button class="range-btn" data-days="1">24h</button>
+          <button class="range-btn" data-days="4">4d</button>
+          <button class="range-btn" data-days="7">7d</button>
+          <button class="range-btn" data-days="14">14d</button>
+          <button class="range-btn" data-days="30">30d</button>
+          <button class="range-btn active" data-days="0">All</button>
+        </div>
+      </div>
+      <div style="font-size:11px; color:var(--text3); margin-bottom:10px; font-family:'SF Mono','Cascadia Code',Consolas,monospace;" id="dailyRangeLabel"></div>
+      <div class="chart-wrap">
+        <div class="heatmap-grid" id="heatmapGrid"></div>
+        <div class="heatmap-labels" id="heatmapLabels"></div>
+        <div style="margin-top:14px; font-size:11px; color:var(--text2)">
+          Each cell = average glucose for that hour across the selected period. Hover to see value.
+        </div>
+      </div>
+      <div class="section-header" style="margin-top:24px"><span class="section-title">Hourly Trend Chart</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Hourly Trend Chart</span>A bar chart of your average glucose for each hour, colour-coded by zone. This reveals recurring daily patterns — post-meal spikes, overnight lows, dawn phenomenon (rising glucose in the early morning hours). Filtered by the same time range as the heatmap above.</span></i><div class="section-divider"></div></div>
+      <div class="chart-wrap">
+        <div class="chart-container" style="height:220px"><canvas id="hourlyChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- AI Insights Page -->
+    <div class="page" id="page-ai">
+      <div class="section-header"><span class="section-title">AI Analysis</span><div class="section-divider"></div></div>
+      <div class="ai-card">
+        <div class="ai-header">
+          <div class="ai-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 10 4a2 2 0 0 1 2-2zm-3 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+          </div>
+          <div>
+            <div class="ai-label">Claude Analysis</div>
+            <div class="ai-sub">AI-powered insights based on your glucose data</div>
+          </div>
+          <button class="ai-btn" id="aiBtn" onclick="runAIAnalysis()">
+            <span id="aiSpinnerWrap"></span>
+            Analyze with AI
+          </button>
+        </div>
+        <div class="ai-output hidden" id="aiOutput"></div>
+      </div>
+    </div>
+
+    <!-- Settings Page -->
+    <div class="page" id="page-settings">
+      <div class="section-header"><span class="section-title">Settings</span><div class="section-divider"></div></div>
+
+      <div class="settings-card">
+        <div class="settings-title">Anthropic API Key</div>
+        <div class="settings-sub">Required for AI insights. Get your key at console.anthropic.com</div>
+        <div class="input-row">
+          <input type="password" class="settings-input" id="apiKeyInput" placeholder="sk-ant-...">
+          <button class="save-btn" onclick="saveApiKey()">Save</button>
+        </div>
+        <div class="save-feedback" id="apiSaveFeedback"></div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-title">Glucose Thresholds (mg/dL)</div>
+        <div class="settings-sub">Customize your target range for pattern detection and charting.</div>
+        <div class="threshold-row">
+          <div class="threshold-item">
+            <div class="threshold-label">Low threshold</div>
+            <input type="number" class="threshold-input" id="lowThresh" value="70" min="40" max="100">
+          </div>
+          <div class="threshold-item">
+            <div class="threshold-label">High threshold</div>
+            <input type="number" class="threshold-input" id="highThresh" value="140" min="120" max="300">
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button class="save-btn" onclick="applyThresholds()">Apply</button>
+          </div>
+        </div>
+        <div class="save-feedback" id="threshFeedback"></div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-title">About</div>
+        <div class="settings-sub">
+          CGM Dashboard v1.0.0 — A desktop application for analyzing continuous glucose monitor data.<br><br>
+          This app is intended for informational purposes only and is not a medical device. Always consult your healthcare provider for medical decisions.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /app-body -->
+
+<!-- API Key Modal -->
+<div class="modal-overlay hidden" id="apiModal">
+  <div class="modal">
+    <h3>Enter Anthropic API Key</h3>
+    <p>Your key is stored locally and only sent to api.anthropic.com. Get a key at console.anthropic.com</p>
+    <input type="password" class="modal-input" id="modalApiInput" placeholder="sk-ant-...">
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="hideApiModal()">Cancel</button>
+      <button class="modal-save" onclick="saveApiKeyFromModal()">Save key</button>
+    </div>
+  </div>
+</div>
+<!-- Floating tooltip (shared across components) -->
+<div id="floatTooltip"></div>
+
+<!-- Application scripts — order matters: state first, init last -->
+<script src="js/state.js"></script>
+<script src="js/profiles.js"></script>
+<script src="js/fileLibrary.js"></script>
+<script src="js/prefs.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/init.js"></script>
+
+</body>
+</html>
