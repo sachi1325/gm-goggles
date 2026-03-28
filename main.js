@@ -196,10 +196,33 @@ ipcMain.handle('load-upload', (event, filePath) => {
 });
 
 ipcMain.handle('delete-upload', (event, filePath) => {
-  try { fs.unlinkSync(filePath); return true; } catch (e) { return false; }
+  try {
+    fs.unlinkSync(filePath);
+    // Also remove the associated cache file if it exists
+    const cacheFile = filePath + '.cache.json';
+    if (fs.existsSync(cacheFile)) fs.unlinkSync(cacheFile);
+    return true;
+  } catch (e) { return false; }
 });
 
 ipcMain.handle('get-uploads-dir', () => activeProfileId ? profileUploadsDir(activeProfileId) : '');
+
+// ── IPC: Disk parse cache ─────────────────────────────────────
+ipcMain.handle('read-disk-cache', (event, filePath) => {
+  const cacheFile = filePath + '.cache.json';
+  try {
+    if (!fs.existsSync(cacheFile)) return null;
+    return JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+  } catch (e) { return null; }
+});
+
+ipcMain.handle('write-disk-cache', (event, { filePath, modifiedMs, format, readings }) => {
+  const cacheFile = filePath + '.cache.json';
+  try {
+    fs.writeFileSync(cacheFile, JSON.stringify({ modifiedMs, format, readings }));
+    return true;
+  } catch (e) { return false; }
+});
 
 // ── IPC: Prefs (profile-scoped) ───────────────────────────────
 ipcMain.handle('save-prefs', (event, updates) => {

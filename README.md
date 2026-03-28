@@ -7,13 +7,49 @@ Built with Electron — runs on macOS and Windows.
 
 ## Features
 
-- **CSV Import** — drag & drop or open via File menu. Auto-detects Dexcom, FreeStyle Libre, Medtronic, and generic CSV exports
-- **Overview Dashboard** — average glucose, time-in-range, variability (CV), estimated A1C
-- **Glucose Trace** — interactive chart with target range bands, color-coded segments, time range filters
-- **Daily Heatmap** — hourly average glucose heatmap and bar chart
-- **Pattern Detection** — automatic analysis: TIR goal, hypo/hyperglycemia, dawn phenomenon, variability
-- **AI Insights** — Claude-powered analysis of your data (requires Anthropic API key)
-- **Settings** — configurable glucose thresholds, API key management
+- **Multi-profile support** — separate data, preferences and API keys per user
+- **CSV Import** — drag & drop or open via File menu. Auto-detects format
+- **4 supported formats** — LingoFormat (Lingo/Abbott), LibreViewFormat (FreeStyle Libre), DexcomFormat, GenericFormat
+- **Overview Dashboard** — average glucose, GMI (est. A1C), time-in-range, variability (CV)
+- **Glucose Trace** — interactive chart with target range bands, time range + resolution filters
+- **Daily Time in Range** — line chart showing % in/above/below range per day, toggleable series
+- **Daily Heatmap** — hourly average glucose heatmap + bar chart, filterable by date range
+- **Pattern Detection** — TIR goal, hypo/hyperglycemia, dawn phenomenon, variability
+- **AI Insights** — Claude-powered analysis (requires Anthropic API key)
+- **Persistent preferences** — all settings saved per profile, restored on next launch
+- **Fully offline** — only AI Insights requires internet
+
+---
+
+## Project Structure
+
+```
+cgm-desktop/
+├── main.js              # Electron main process — window, IPC, file system, profiles
+├── preload.js           # Secure IPC bridge between main and renderer
+├── package.json         # Dependencies and electron-builder config
+│
+└── src/
+    ├── index.html       # App shell — loads CSS/JS, contains all HTML markup
+    │
+    ├── css/
+    │   ├── variables.css    # Design tokens — colours, spacing, typography
+    │   ├── components.css   # All UI components — sidebar, charts, buttons, heatmap
+    │   └── profiles.css     # Profile picker screen and new-profile modal
+    │
+    └── js/
+        ├── state.js         # Global state variables + resampleData()
+        ├── profiles.js      # Profile picker, create, switch, delete
+        ├── fileLibrary.js   # File list, select and delete uploaded CSVs
+        ├── prefs.js         # savePrefs(), applyPrefsToUI()
+        ├── parser.js        # Multi-format CSV parser and format detection
+        ├── dashboard.js     # Stats, glucose chart, patterns, TIR, heatmap
+        ├── ai.js            # AI analysis and API key management
+        └── init.js          # init(), navigateTo(), loadDemo() — entry point
+```
+
+Script load order in index.html is intentional: state.js first (defines globals),
+feature modules in dependency order, init.js last (calls init() to boot the app).
 
 ---
 
@@ -21,75 +57,62 @@ Built with Electron — runs on macOS and Windows.
 
 ### Requirements
 - Node.js 18+ (https://nodejs.org)
-- npm (included with Node.js)
 
 ### Run in Development
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Start the app
 npm start
 ```
 
 ### Build for Distribution
 
 ```bash
-# macOS (.dmg + .zip)
-npm run build:mac
-
-# Windows (.exe installer + portable)
-npm run build:win
-
-# Both platforms
-npm run build:all
+npm run build:mac    # macOS (.dmg + .zip)
+npm run build:win    # Windows (.exe installer + portable)
+npm run build:all    # Both (macOS only, requires Wine for Windows target)
 ```
 
-Built apps will appear in the `dist/` folder.
+Built apps appear in the dist/ folder.
 
-> **Note for Windows builds on macOS**: You may need `wine` installed via Homebrew.
-> **Note for macOS builds on Windows**: Cross-compilation is limited; use a Mac or CI/CD.
+---
+
+## Profile Data Storage
+
+Each profile gets its own isolated directory:
+
+  macOS:   ~/Library/Application Support/cgm-dashboard/profiles/<id>/
+  Windows: %APPDATA%\cgm-dashboard\profiles\<id>\
+
+Each contains:
+  preferences.json   — chart settings, thresholds, API key
+  uploads/           — CSV files for this profile
+
+Global files at the root of cgm-dashboard/:
+  profiles.json      — list of all profiles
+  global.json        — last used profile id
 
 ---
 
 ## Setting Up AI Insights
 
-1. Get an API key from [console.anthropic.com](https://console.anthropic.com)
-2. Open the app → click the key icon in the sidebar (or go to Settings)
-3. Paste your key — it's stored locally in your OS user data directory
+1. Get an API key from console.anthropic.com
+2. In the app: click the key icon in the sidebar or go to Settings
+3. The key is saved to your profile's preferences.json
 
-Alternatively, set the environment variable before running:
-```bash
-ANTHROPIC_API_KEY=sk-ant-... npm start
-```
+Or set before running: ANTHROPIC_API_KEY=sk-ant-... npm start
 
 ---
 
-## CSV Format
+## Supported CSV Formats
 
-The app auto-detects columns. Supported column name patterns:
+Format           Detected by                              Notes
+LingoFormat      "Time of Glucose Reading" column         Lingo / Abbott CGM
+LibreViewFormat  "Device Timestamp" + "Record Type"       FreeStyle Libre via libreview.com
+DexcomFormat     "Glucose Value (mg/dL)" or "EGV"         Dexcom Clarity exports
+GenericFormat    Fallback                                  Any CSV with timestamp + glucose
 
-| Column Type | Detected patterns |
-|-------------|------------------|
-| Timestamp   | `time`, `date`, `timestamp` |
-| Glucose     | `glucose`, `mg/dL`, `EGV`, `mmol` |
-
-Glucose values can be in **mg/dL** or **mmol/L** — the app converts automatically.
-
-### Example CSV structure:
-```csv
-Timestamp,Glucose Value (mg/dL),...)
-2024-01-15 08:00,112,...
-2024-01-15 08:05,115,...
-```
-
----
-
-## App Data Location
-
-- **macOS**: `~/Library/Application Support/cgm-dashboard/config.json`
-- **Windows**: `%APPDATA%\cgm-dashboard\config.json`
+Both mg/dL and mmol/L supported — mmol/L converted automatically.
 
 ---
 
