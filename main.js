@@ -224,6 +224,29 @@ ipcMain.handle('write-disk-cache', (event, { filePath, modifiedMs, format, readi
   } catch (e) { return false; }
 });
 
+// ── IPC: Aggregation cache ───────────────────────────────────
+// Stored at profile root as agg-cache.json
+function aggCachePath(id) {
+  return path.join(profileDir(id), 'agg-cache.json');
+}
+
+ipcMain.handle('read-agg-cache', () => {
+  if (!activeProfileId) return null;
+  try {
+    const p = aggCachePath(activeProfileId);
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch (e) { return null; }
+});
+
+ipcMain.handle('write-agg-cache', (event, payload) => {
+  if (!activeProfileId) return false;
+  try {
+    fs.writeFileSync(aggCachePath(activeProfileId), JSON.stringify(payload));
+    return true;
+  } catch (e) { return false; }
+});
+
 // ── IPC: Prefs (profile-scoped) ───────────────────────────────
 ipcMain.handle('save-prefs', (event, updates) => {
   if (!activeProfileId) return false;

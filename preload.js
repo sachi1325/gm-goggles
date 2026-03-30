@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteUpload:     (filePath)      => ipcRenderer.invoke('delete-upload', filePath),
   readDiskCache:    (filePath)      => ipcRenderer.invoke('read-disk-cache', filePath),
   writeDiskCache:   (payload)       => ipcRenderer.invoke('write-disk-cache', payload),
+  readAggCache:     ()              => ipcRenderer.invoke('read-agg-cache'),
+  writeAggCache:    (payload)       => ipcRenderer.invoke('write-agg-cache', payload),
   getUploadsDir:    ()              => ipcRenderer.invoke('get-uploads-dir'),
   // Prefs
   savePrefs:        (updates)       => ipcRenderer.invoke('save-prefs', updates),
