@@ -1,10 +1,11 @@
 #!/bin/bash
-# Quick install + launch script
-
 echo "Installing CGM Dashboard dependencies..."
 npm install
 
 if [ $? -eq 0 ]; then
+  echo ""
+  echo "Running security audit fix..."
+  npm audit fix --only=prod 2>/dev/null || true
   echo ""
   echo "✓ Dependencies installed."
   echo ""

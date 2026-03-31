@@ -130,9 +130,13 @@ async function openFileDialog() {
 ipcMain.handle('list-profiles', () => readProfiles());
 
 ipcMain.handle('create-profile', (event, { name, color }) => {
+  // Sanitise inputs — strip tags, clamp length
+  const safeName  = String(name  || '').replace(/<[^>]*>/g, '').trim().slice(0, 64);
+  const safeColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#26d9a8';
+  if (!safeName) return null;
   const profiles = readProfiles();
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const profile = { id, name, color, createdAt: Date.now() };
+  const profile = { id, name: safeName, color: safeColor, createdAt: Date.now() };
   profiles.push(profile);
   writeProfiles(profiles);
   profileDir(id); // create dir
@@ -140,9 +144,11 @@ ipcMain.handle('create-profile', (event, { name, color }) => {
 });
 
 ipcMain.handle('update-profile', (event, { id, name, color }) => {
+  const safeName  = String(name  || '').replace(/<[^>]*>/g, '').trim().slice(0, 64);
+  const safeColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#26d9a8';
   const profiles = readProfiles();
   const idx = profiles.findIndex(p => p.id === id);
-  if (idx >= 0) { profiles[idx] = { ...profiles[idx], name, color }; writeProfiles(profiles); }
+  if (idx >= 0) { profiles[idx] = { ...profiles[idx], name: safeName, color: safeColor }; writeProfiles(profiles); }
   return profiles[idx] || null;
 });
 
@@ -191,15 +197,22 @@ ipcMain.handle('list-uploads', () => {
 
 ipcMain.handle('load-upload', (event, filePath) => {
   try {
-    return { name: path.basename(filePath), content: fs.readFileSync(filePath, 'utf-8'), filePath };
+    if (!activeProfileId) return null;
+    const allowed = profileUploadsDir(activeProfileId);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(allowed) + path.sep)) return null; // path traversal guard
+    return { name: path.basename(resolved), content: fs.readFileSync(resolved, 'utf-8'), filePath: resolved };
   } catch (e) { return null; }
 });
 
 ipcMain.handle('delete-upload', (event, filePath) => {
   try {
-    fs.unlinkSync(filePath);
-    // Also remove the associated cache file if it exists
-    const cacheFile = filePath + '.cache.json';
+    if (!activeProfileId) return false;
+    const allowed = profileUploadsDir(activeProfileId);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(allowed) + path.sep)) return false; // path traversal guard
+    fs.unlinkSync(resolved);
+    const cacheFile = resolved + '.cache.json';
     if (fs.existsSync(cacheFile)) fs.unlinkSync(cacheFile);
     return true;
   } catch (e) { return false; }
@@ -209,16 +222,24 @@ ipcMain.handle('get-uploads-dir', () => activeProfileId ? profileUploadsDir(acti
 
 // ── IPC: Disk parse cache ─────────────────────────────────────
 ipcMain.handle('read-disk-cache', (event, filePath) => {
-  const cacheFile = filePath + '.cache.json';
   try {
+    if (!activeProfileId) return null;
+    const allowed = profileUploadsDir(activeProfileId);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(allowed) + path.sep)) return null; // path traversal guard
+    const cacheFile = resolved + '.cache.json';
     if (!fs.existsSync(cacheFile)) return null;
     return JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
   } catch (e) { return null; }
 });
 
 ipcMain.handle('write-disk-cache', (event, { filePath, modifiedMs, format, readings }) => {
-  const cacheFile = filePath + '.cache.json';
   try {
+    if (!activeProfileId) return false;
+    const allowed = profileUploadsDir(activeProfileId);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(allowed) + path.sep)) return false; // path traversal guard
+    const cacheFile = resolved + '.cache.json';
     fs.writeFileSync(cacheFile, JSON.stringify({ modifiedMs, format, readings }));
     return true;
   } catch (e) { return false; }
@@ -275,15 +296,22 @@ ipcMain.handle('load-api-key', () => {
 
 // ── IPC: Anthropic ────────────────────────────────────────────
 ipcMain.handle('call-anthropic', (event, { messages, model, max_tokens, apiKey }) => {
+  // Load API key from profile prefs — never trust key sent from renderer
+  const prefs = activeProfileId ? readProfilePrefs(activeProfileId) : {};
+  const safeKey = prefs.apiKey || process.env.ANTHROPIC_API_KEY || '';
+  // Whitelist model and cap tokens
+  const allowedModels = ['claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'];
+  const safeModel = allowedModels.includes(model) ? model : allowedModels[0];
+  const safeTokens = Math.min(Math.max(1, parseInt(max_tokens) || 1000), 4096);
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model, max_tokens, messages });
+    const body = JSON.stringify({ model: safeModel, max_tokens: safeTokens, messages });
     const options = {
       hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
         'anthropic-version': '2023-06-01',
-        'x-api-key': apiKey || ''
+        'x-api-key': safeKey
       }
     };
     const req = https.request(options, res => {
