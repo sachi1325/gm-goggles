@@ -97,7 +97,7 @@ async function saveApiKey() {
 function applyThresholds() {
   LOW = parseInt(document.getElementById('lowThresh').value) || 70;
   HIGH = parseInt(document.getElementById('highThresh').value) || 140;
-  if (readings.length) { renderDashboard(); }
+  if (readings.length) { renderDashboard(); renderTirBreakdown(); }
   savePrefs();
   const fb = document.getElementById('threshFeedback');
   fb.textContent = `Thresholds updated: ${LOW}–${HIGH} mg/dL ✓`;

@@ -32,7 +32,8 @@ async function init() {
       activeFilePath = filePath;
       window.electronAPI.savePrefs({ lastFile: filePath });
     }
-    parseCSV(content);
+    invalidateAggCache();
+    parseCSV(content, filePath || null, null);
     loadFileLibrary();
   });
   window.electronAPI.onLoadDemo(() => loadDemo());
@@ -52,6 +53,19 @@ async function init() {
     item.addEventListener('click', () => navigateTo(item.dataset.page));
   });
 
+  // Overview shared range picker
+  document.getElementById('overviewRangeBtns').addEventListener('click', e => {
+    const btn = e.target.closest('.range-btn'); if (!btn) return;
+    document.querySelectorAll('#overviewRangeBtns .range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    overviewRangeDays = parseInt(btn.dataset.days);
+    updateOverviewRangeLabel();
+    renderStats('statsGrid');
+    renderTirBreakdown();
+    renderPatterns('patternGrid');
+    savePrefs();
+  });
+
   // Range buttons
   document.getElementById('rangeBtns').addEventListener('click', e => {
     const btn = e.target.closest('.range-btn'); if (!btn) return;
@@ -67,6 +81,7 @@ async function init() {
     btn.classList.add('active');
     activeRange2 = parseInt(btn.dataset.days);
     renderChart(activeRange2, 'glucoseChart2', chart2, c => chart2 = c, activeRes2);
+    renderDailyTIR();
     savePrefs();
   });
 

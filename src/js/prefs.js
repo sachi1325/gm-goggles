@@ -4,6 +4,7 @@
 function savePrefs() {
   window.electronAPI.savePrefs({
     low: LOW, high: HIGH,
+    overviewRangeDays,
     activeRange, activeRange2, activeRes, activeRes2,
     activeDailyRange,
     tirSeriesVisible,
@@ -14,6 +15,14 @@ function applyPrefsToUI(prefs) {
   // Thresholds
   if (prefs.low) { LOW = prefs.low; document.getElementById('lowThresh').value = LOW; }
   if (prefs.high) { HIGH = prefs.high; document.getElementById('highThresh').value = HIGH; }
+
+  // Overview shared range
+  if (prefs.overviewRangeDays !== undefined) {
+    overviewRangeDays = prefs.overviewRangeDays;
+    document.querySelectorAll('#overviewRangeBtns .range-btn').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.days) === overviewRangeDays);
+    });
+  }
 
   // Overview range
   if (prefs.activeRange !== undefined) {

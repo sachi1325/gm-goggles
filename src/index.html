@@ -79,7 +79,7 @@
     <div class="nav-item active" data-page="overview">
       <span class="nav-icon">◈</span> Overview
     </div>
-    <div class="nav-item" data-page="trends">
+<div class="nav-item" data-page="trends">
       <span class="nav-icon">∿</span> Glucose Trace
     </div>
     <div class="nav-item" data-page="patterns">
@@ -91,13 +91,13 @@
     <div class="nav-item" data-page="ai">
       <span class="nav-icon">✦</span> AI Insights
     </div>
-    <div class="nav-item" data-page="settings">
+<div class="nav-item" data-page="settings">
       <span class="nav-icon">⚙</span> Settings
     </div>
 
     <div class="sidebar-files">
       <div class="sidebar-files-header">
-        <span>Data Files</span>
+        <span>Data</span>
         <button class="open-btn" onclick="window.electronAPI.openFileDialog()">+ Open</button>
       </div>
       <div class="file-list" id="fileList">
@@ -133,18 +133,41 @@
             <button class="demo-btn" onclick="window.electronAPI.openFileDialog()">Open CSV file →</button>
             <button class="demo-btn" onclick="loadDemo()" style="opacity:0.5">Load sample data</button>
           </div>
-          <div style="margin-top:10px;font-size:10px;color:var(--text3);font-family:'SF Mono','Cascadia Code',Consolas,monospace" id="uploadsDirLabel"></div>
         </div>
       </div>
       <div id="overviewData" class="hidden">
+
+        <!-- Shared range picker — controls Stats, TIR, and Patterns together -->
+        <div class="overview-range-bar">
+          <span class="overview-range-label">Showing</span>
+          <div class="range-btns" id="overviewRangeBtns">
+            <button class="range-btn" data-days="7">7d</button>
+            <button class="range-btn" data-days="14">2w</button>
+            <button class="range-btn" data-days="30">4w</button>
+            <button class="range-btn" data-days="90">3m</button>
+            <button class="range-btn active" data-days="0">All</button>
+          </div>
+          <span class="overview-range-date" id="overviewRangeDate"></span>
+        </div>
+
         <div class="stats" id="statsGrid"></div>
-        <div class="section-header"><span class="section-title">Glucose Trace</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Glucose Trace</span>Your raw glucose readings plotted over time. Green segments are within your target range (70–140 mg/dL), red segments are outside it. The shaded band shows your target zone. Use the time range and resolution buttons to zoom in or smooth the data.</span></i><div class="section-divider"></div></div>
+
+        <div class="section-header" style="margin-top:20px">
+          <span class="section-title">Time in Range</span>
+          <i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Time in Range Breakdown</span>Shows what percentage of readings fell below, within, and above your target range (70–140 mg/dL) for each time period. The teal bar is your in-range %, red is low, amber is high. The dashed line marks the 70% clinical goal.</span></i>
+          <div class="section-divider"></div>
+        </div>
+        <div id="tirBreakdown"></div>
+
+        <div class="section-header" style="margin-top:20px"><span class="section-title">Glucose Trace</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Glucose Trace</span>Your raw glucose readings plotted over time. Green segments are within your target range (70–140 mg/dL), red segments are outside it. The shaded band shows your target zone. Use the time range and resolution buttons to zoom in or smooth the data.</span></i><div class="section-divider"></div></div>
         <div class="chart-wrap">
           <div class="chart-top">
             <div class="range-btns" id="rangeBtns">
               <button class="range-btn active" data-days="1">24h</button>
               <button class="range-btn" data-days="3">3d</button>
               <button class="range-btn" data-days="7">7d</button>
+              <button class="range-btn" data-days="30">30d</button>
+              <button class="range-btn" data-days="90">3m</button>
               <button class="range-btn" data-days="0">All</button>
             </div>
             <div class="res-btns" id="resBtns">
@@ -167,6 +190,7 @@
       </div>
     </div>
 
+    <!-- Aggregated View Page -->
     <!-- Glucose Trace Page -->
     <div class="page" id="page-trends">
       <div class="section-header"><span class="section-title">Full Glucose Trace</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Full Glucose Trace</span>Your complete glucose history across the selected time window. Resolution buttons (5m, 15m, 1h…) control how readings are averaged into each point — useful for smoothing noisy data over longer periods. Hover any point to see the exact value and time.</span></i><div class="section-divider"></div></div>
@@ -177,6 +201,7 @@
             <button class="range-btn" data-days="3">3d</button>
             <button class="range-btn" data-days="7">7d</button>
             <button class="range-btn" data-days="14">14d</button>
+            <button class="range-btn" data-days="90">3m</button>
             <button class="range-btn" data-days="0">All</button>
           </div>
           <div class="res-btns" id="resBtns2">
@@ -228,10 +253,10 @@
         <div class="section-divider"></div>
         <div class="range-btns" id="dailyRangeBtns" style="margin-left:8px">
           <button class="range-btn" data-days="1">24h</button>
-          <button class="range-btn" data-days="4">4d</button>
           <button class="range-btn" data-days="7">7d</button>
           <button class="range-btn" data-days="14">14d</button>
           <button class="range-btn" data-days="30">30d</button>
+          <button class="range-btn" data-days="90">3m</button>
           <button class="range-btn active" data-days="0">All</button>
         </div>
       </div>
@@ -243,9 +268,13 @@
           Each cell = average glucose for that hour across the selected period. Hover to see value.
         </div>
       </div>
-      <div class="section-header" style="margin-top:24px"><span class="section-title">Hourly Trend Chart</span><i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Hourly Trend Chart</span>A bar chart of your average glucose for each hour, colour-coded by zone. This reveals recurring daily patterns — post-meal spikes, overnight lows, dawn phenomenon (rising glucose in the early morning hours). Filtered by the same time range as the heatmap above.</span></i><div class="section-divider"></div></div>
+      <div class="section-header" style="margin-top:24px">
+        <span class="section-title">Ambulatory Glucose Profile (AGP)</span>
+        <i class="chart-info">i<span class="chart-tooltip"><span class="chart-tooltip-title">Ambulatory Glucose Profile</span>Shows the distribution of glucose at each hour of the day across the selected period. The solid line is the median. The darker band covers the 25th–75th percentile (typical range). The lighter band covers the 5th–95th percentile (full variability). Numbers across the top are 2-hour averages. Filtered by the same date range as the heatmap above.</span></i>
+        <div class="section-divider"></div>
+      </div>
       <div class="chart-wrap">
-        <div class="chart-container" style="height:220px"><canvas id="hourlyChart"></canvas></div>
+        <div class="chart-container" style="height:280px"><canvas id="hourlyChart"></canvas></div>
       </div>
     </div>
 
@@ -270,6 +299,7 @@
       </div>
     </div>
 
+    <!-- Data Page -->
     <!-- Settings Page -->
     <div class="page" id="page-settings">
       <div class="section-header"><span class="section-title">Settings</span><div class="section-divider"></div></div>
@@ -337,6 +367,7 @@
 <script src="js/prefs.js"></script>
 <script src="js/parser.js"></script>
 <script src="js/dashboard.js"></script>
+<script src="js/aggregation.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/init.js"></script>
 

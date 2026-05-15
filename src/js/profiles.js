@@ -23,8 +23,8 @@ async function renderProfileScreen() {
   const cards = profiles.map(p => `
     <div class="ps-card" onclick="selectProfile('${p.id}')">
       <button class="ps-card-del" onclick="deleteProfileCard(event,'${p.id}')" title="Delete profile">×</button>
-      <div class="ps-avatar" style="${avatarStyle(p.color)}">${avatarInitials(p.name)}</div>
-      <div class="ps-card-name">${p.name}</div>
+      <div class="ps-avatar" style="${avatarStyle(p.color)}">${escHtml(avatarInitials(p.name))}</div>
+      <div class="ps-card-name">${escHtml(p.name)}</div>
       <div class="ps-card-meta">${p.color}</div>
     </div>
   `).join('');
@@ -48,6 +48,8 @@ async function selectProfile(id) {
 }
 
 async function reloadForProfile() {
+  invalidateAggCache(); // clear previous profile's in-memory agg cache
+  clearAllCache();       // evict all per-file parse cache entries from previous profile
   readings = [];
   activeFilePath = '';
   detectedFormat = 'Unknown';
@@ -63,18 +65,34 @@ async function reloadForProfile() {
 
   await loadFileLibrary();
 
-  const uploadsDir = await window.electronAPI.getUploadsDir();
-  const dirLabel = document.getElementById('uploadsDirLabel');
-  if (dirLabel) dirLabel.textContent = '📁 ' + uploadsDir;
 
-  if (prefs.lastFile) {
-    const result = await window.electronAPI.loadUpload(prefs.lastFile);
-    if (result) {
+  const allFiles = await window.electronAPI.listUploads();
+  await loadFileLibrary();
+
+  if (prefs.lastFile === '') {
+    // Last view was All Data
+    const agg = await loadAggregatedReadings();
+    if (agg && agg.length >= 2) {
+      activeFilePath = '';
+      applyReadings(agg, 'All Files');
+    }
+  } else if (prefs.lastFile) {
+    // Last view was a specific file
+    const meta = allFiles.find(f => f.filePath === prefs.lastFile);
+    const modifiedMs = meta ? meta.modified : null;
+    const cached = await resolveFromCache(prefs.lastFile, modifiedMs);
+    if (cached) {
       activeFilePath = prefs.lastFile;
-      parseCSV(result.content);
-      loadFileLibrary();
+      applyReadings(cached.readings, cached.format);
+    } else if (meta) {
+      const result = await window.electronAPI.loadUpload(prefs.lastFile);
+      if (result) {
+        activeFilePath = prefs.lastFile;
+        parseCSV(result.content, prefs.lastFile, modifiedMs);
+      }
     }
   }
+  loadFileLibrary();
 }
 
 function updateSidebarProfile() {

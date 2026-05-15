@@ -23,7 +23,9 @@ function loadDemo() {
 function renderDashboard() {
   document.getElementById('noData').classList.add('hidden');
   document.getElementById('overviewData').classList.remove('hidden');
-  renderStats();
+  updateOverviewRangeLabel();
+  renderStats('statsGrid');
+  renderTirBreakdown();
   renderChart(activeRange, 'glucoseChart', chart, c => chart = c, activeRes);
   renderPatterns('patternGrid');
   document.getElementById('aiOutput').classList.add('hidden');
@@ -47,11 +49,11 @@ function computeStats(data) {
   };
 }
 
-function renderStats() {
-  const s = computeStats(readings);
+function renderStats(gridId, data) {
+  const s = computeStats(data || getOverviewData());
   const tirColor = parseFloat(s.tir) >= 70 ? 'teal' : parseFloat(s.tir) >= 50 ? 'amber' : 'red';
   const avgColor = s.avg >= LOW && s.avg <= HIGH ? 'teal' : s.avg > HIGH ? 'amber' : 'red';
-  document.getElementById('statsGrid').innerHTML = `
+  document.getElementById(gridId || 'statsGrid').innerHTML = `
     <div class="stat">
       <div class="stat-label">Average Glucose</div>
       <div class="stat-val ${avgColor}">${s.avg}<span class="stat-unit">mg/dL</span></div>
@@ -83,6 +85,25 @@ function getFilteredData(days) {
   if (!days) return readings;
   const cutoff = readings[readings.length - 1].ts.getTime() - days * 86400000;
   return readings.filter(r => r.ts.getTime() >= cutoff);
+}
+
+// Returns data filtered by the shared overview range
+function getOverviewData() {
+  return getFilteredData(overviewRangeDays);
+}
+
+// Updates the date range label in the overview range bar
+function updateOverviewRangeLabel() {
+  const data = getOverviewData();
+  const el = document.getElementById('overviewRangeDate');
+  if (!el || !data.length) return;
+  if (overviewRangeDays === 0) {
+    el.textContent = data[0].ts.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) +
+      ' → ' + data[data.length-1].ts.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  } else {
+    el.textContent = data[0].ts.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) +
+      ' → ' + data[data.length-1].ts.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  }
 }
 
 function renderChart(days, canvasId, existingChart, setChart, intervalMinutes) {
@@ -173,8 +194,9 @@ function renderChart(days, canvasId, existingChart, setChart, intervalMinutes) {
 }
 
 // ── Patterns ─────────────────────────────────────────────────
-function detectPatterns() {
-  const s = computeStats(readings);
+function detectPatterns(data) {
+  const src = data || getOverviewData();
+  const s = computeStats(src);
   const patterns = [];
   const tir = parseFloat(s.tir), tirBelow = parseFloat(s.tirBelow), tirAbove = parseFloat(s.tirAbove), cv = parseFloat(s.cv);
 
@@ -191,15 +213,15 @@ function detectPatterns() {
   if (cv > 36) patterns.push({ level: 'warn', icon: '~', name: 'High glucose variability', desc: `CV of ${s.cv}% exceeds the ≤36% clinical target for glycemic stability.` });
   else patterns.push({ level: 'ok', icon: '✓', name: 'Stable glycemic variability', desc: `CV of ${s.cv}% is within the stable range (≤36%).` });
 
-  const dawn = readings.filter(r => { const h = r.ts.getHours(); return h >= 4 && h <= 8; });
+  const dawn = src.filter(r => { const h = r.ts.getHours(); return h >= 4 && h <= 8; });
   const dawnAvg = dawn.length ? Math.round(dawn.reduce((a, r) => a + r.gl, 0) / dawn.length) : 0;
   if (dawnAvg > 130) patterns.push({ level: 'warn', icon: '↗', name: 'Dawn phenomenon likely', desc: `Average glucose 4–8 AM is ${dawnAvg} mg/dL, suggesting early-morning blood sugar rise.` });
 
   return patterns;
 }
 
-function renderPatterns(gridId) {
-  const patterns = detectPatterns();
+function renderPatterns(gridId, data) {
+  const patterns = detectPatterns(data);
   document.getElementById(gridId).innerHTML = patterns.map(p => `
     <div class="pattern-card">
       <div class="pattern-badge ${p.level}">${p.icon}</div>
@@ -213,9 +235,12 @@ function renderDailyTIR() {
   const wrap = document.getElementById('tirChartWrap');
   if (!wrap) return;
 
+  // Use the same date filter as the Glucose Trace chart above it
+  const filtered = getFilteredData(activeRange2);
+
   // Bucket readings by calendar day
   const dayMap = new Map();
-  for (const r of readings) {
+  for (const r of filtered) {
     const key = r.ts.toLocaleDateString('en-CA'); // YYYY-MM-DD
     if (!dayMap.has(key)) dayMap.set(key, []);
     dayMap.get(key).push(r.gl);
@@ -408,46 +433,203 @@ function renderDailyPage(days) {
     cell.addEventListener('mouseleave', () => ftEl.classList.remove('visible'));
   });
 
-  // Hourly trend chart
+  // ── AGP — Ambulatory Glucose Profile ─────────────────────────
+  function pct(arr, p) {
+    if (!arr.length) return null;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const idx = (p / 100) * (sorted.length - 1);
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  }
+
+  const hourlyPercentiles = Array.from({ length: 24 }, (_, h) => {
+    const vals = filtered.filter(r => r.ts.getHours() === h).map(r => r.gl);
+    if (vals.length < 3) return null;
+    return {
+      p5:  pct(vals, 5),
+      p25: pct(vals, 25),
+      p50: pct(vals, 50),
+      p75: pct(vals, 75),
+      p95: pct(vals, 95),
+      avg: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length),
+    };
+  });
+
+  const agpLabels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2,'0')}:00`);
+
   if (hourlyChart) hourlyChart.destroy();
   const ctx = document.getElementById('hourlyChart').getContext('2d');
-  const validHours = hourlyAvg.map((v, i) => ({ x: i, y: v })).filter(p => p.y !== null);
+
   hourlyChart = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: {
-      labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`),
-      datasets: [{
-        data: hourlyAvg,
-        backgroundColor: hourlyAvg.map(v => v == null ? 'transparent' : v < LOW ? '#f85149' : v > HIGH ? '#f0a832' : '#26d9a8'),
-        borderRadius: 4,
-      }]
+      labels: agpLabels,
+      datasets: [
+        {
+          label: '5th percentile',
+          data: hourlyPercentiles.map(p => p ? Math.round(p.p5) : null),
+          borderColor: 'transparent', backgroundColor: 'rgba(88,166,255,0.10)',
+          pointRadius: 0, tension: 0.4, fill: '+4', spanGaps: true,
+        },
+        {
+          label: '25th percentile',
+          data: hourlyPercentiles.map(p => p ? Math.round(p.p25) : null),
+          borderColor: 'transparent', backgroundColor: 'rgba(88,166,255,0.22)',
+          pointRadius: 0, tension: 0.4, fill: '+2', spanGaps: true,
+        },
+        {
+          label: 'Median',
+          data: hourlyPercentiles.map(p => p ? Math.round(p.p50) : null),
+          borderColor: '#58a6ff', borderWidth: 2.5, backgroundColor: 'transparent',
+          pointRadius: 0, tension: 0.4, fill: false, spanGaps: true,
+        },
+        {
+          label: '75th percentile',
+          data: hourlyPercentiles.map(p => p ? Math.round(p.p75) : null),
+          borderColor: 'transparent', backgroundColor: 'rgba(88,166,255,0.22)',
+          pointRadius: 0, tension: 0.4, fill: false, spanGaps: true,
+        },
+        {
+          label: '95th percentile',
+          data: hourlyPercentiles.map(p => p ? Math.round(p.p95) : null),
+          borderColor: 'transparent', backgroundColor: 'rgba(88,166,255,0.10)',
+          pointRadius: 0, tension: 0.4, fill: false, spanGaps: true,
+        },
+      ]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1f2937', titleColor: '#8b949e', bodyColor: '#e6edf3',
-        borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        callbacks: { label: item => ` ${item.parsed.y} mg/dL avg` }
-      }},
+      responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1f2937', titleColor: '#8b949e', bodyColor: '#e6edf3',
+          borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+          filter: item => ['5th percentile','25th percentile','Median'].includes(item.dataset.label),
+          callbacks: {
+            title: items => agpLabels[items[0].dataIndex],
+            label: item => {
+              const h = item.dataIndex, p = hourlyPercentiles[h];
+              if (!p) return null;
+              if (item.dataset.label === 'Median')           return ` Median: ${Math.round(p.p50)} mg/dL`;
+              if (item.dataset.label === '25th percentile')  return ` 25–75th: ${Math.round(p.p25)}–${Math.round(p.p75)} mg/dL`;
+              if (item.dataset.label === '5th percentile')   return ` 5–95th: ${Math.round(p.p5)}–${Math.round(p.p95)} mg/dL`;
+            }
+          }
+        }
+      },
       scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6e7681', font: { family: "'SF Mono', Consolas, monospace", size: 9 }, autoSkip: true, maxTicksLimit: 12 } },
-        y: { min: 40, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6e7681', font: { family: "'SF Mono', Consolas, monospace", size: 9 } } }
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#6e7681', font: { family: "\'SF Mono\', Consolas, monospace", size: 9 }, maxTicksLimit: 13 }
+        },
+        y: {
+          min: Math.max(30, Math.min(...hourlyPercentiles.filter(Boolean).map(p => p.p5)) - 20),
+          max: Math.min(400, Math.max(...hourlyPercentiles.filter(Boolean).map(p => p.p95)) + 20),
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#6e7681', font: { family: "\'SF Mono\', Consolas, monospace", size: 9 }, callback: v => v + '' }
+        }
       }
     },
     plugins: [{
-      id: 'ranges',
-      beforeDraw(chart) {
-        const { ctx, chartArea: { left, right }, scales: { y } } = chart;
+      id: 'agpOverlays',
+      afterDraw(chart) {
+        const { ctx, chartArea: { top, bottom, left, right }, scales: { y } } = chart;
         if (!y) return;
         ctx.save();
+        // Target range shading
+        const yLow  = y.getPixelForValue(LOW);
+        const yHigh = y.getPixelForValue(HIGH);
+        ctx.fillStyle = 'rgba(38,217,168,0.06)';
+        ctx.fillRect(left, yHigh, right - left, yLow - yHigh);
+        // Threshold lines
         [LOW, HIGH].forEach(val => {
           const py = y.getPixelForValue(val);
-          ctx.strokeStyle = 'rgba(248,81,73,0.35)';
-          ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+          ctx.strokeStyle = 'rgba(248,81,73,0.45)';
+          ctx.setLineDash([4,4]); ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right, py); ctx.stroke();
         });
-        ctx.setLineDash([]); ctx.restore();
+        ctx.setLineDash([]);
+        // 2-hour avg labels at top
+        ctx.font = "bold 9px 'SF Mono', Consolas, monospace";
+        ctx.textAlign = 'center';
+        for (let h = 0; h < 24; h += 2) {
+          const p = hourlyPercentiles[h]; if (!p) continue;
+          const meta = chart.getDatasetMeta(2);
+          const pt = meta.data[h]; if (!pt) continue;
+          ctx.fillStyle = p.avg < LOW ? '#f85149' : p.avg > HIGH ? '#f0a832' : 'rgba(255,255,255,0.6)';
+          ctx.fillText(Math.round(p.avg), pt.x, top + 14);
+        }
+        ctx.restore();
       }
     }]
   });
 }
+
+// ── TIR Breakdown Widget ──────────────────────────────────────
+function computeTirStats(data) {
+  if (!data || !data.length) return null;
+  const total   = data.length;
+  const low     = data.filter(v => v.gl < LOW).length;
+  const inRange = data.filter(v => v.gl >= LOW && v.gl <= HIGH).length;
+  const high    = data.filter(v => v.gl > HIGH).length;
+  return {
+    total,
+    lowPct:  parseFloat((low     / total * 100).toFixed(1)),
+    inPct:   parseFloat((inRange / total * 100).toFixed(1)),
+    highPct: parseFloat((high    / total * 100).toFixed(1)),
+    from: data[0].ts,
+    to:   data[data.length - 1].ts,
+  };
+}
+
+function renderTirBreakdown() {
+  const container = document.getElementById('tirBreakdown');
+  if (!container) return;
+
+  const data = getOverviewData();
+  const t = computeTirStats(data);
+
+  if (!t) {
+    container.innerHTML = '<div class="tir-single-card"><div class="tir-no-data">No data for this period.</div></div>';
+    return;
+  }
+
+  const goalPos  = Math.min(t.lowPct + 70, 100);
+  const tirColor = t.inPct >= 70 ? '#26d9a8' : t.inPct >= 50 ? '#f0a832' : '#f85149';
+
+  container.innerHTML = `
+    <div class="tir-single-card">
+      <div class="tir-single-body">
+        <div class="tir-single-main">
+          <div class="tir-main-val" style="color:${tirColor}">${t.inPct}<span style="font-size:16px;font-weight:400">%</span></div>
+          <div class="tir-main-label">in range (${LOW}–${HIGH} mg/dL)</div>
+        </div>
+        <div class="tir-single-detail">
+          <div class="tir-stack" style="height:12px;border-radius:6px;margin-bottom:12px">
+            <div class="tir-stack-seg" style="background:#f85149;width:${t.lowPct}%"></div>
+            <div class="tir-stack-seg" style="background:#26d9a8;width:${t.inPct}%"></div>
+            <div class="tir-stack-seg" style="background:#f0a832;width:${t.highPct}%"></div>
+            <div class="tir-goal-line" style="left:${goalPos}%"></div>
+          </div>
+          <div class="tir-rows">
+            <div class="tir-row">
+              <div class="tir-row-label"><div class="tir-row-dot" style="background:#f85149"></div>Time below range</div>
+              <div><span class="tir-row-val" style="color:#f85149">${t.lowPct}%</span><span class="tir-row-count">&lt;${LOW} mg/dL</span></div>
+            </div>
+            <div class="tir-row">
+              <div class="tir-row-label"><div class="tir-row-dot" style="background:#26d9a8"></div>Time in range</div>
+              <div><span class="tir-row-val" style="color:#26d9a8">${t.inPct}%</span><span class="tir-row-count">${t.total.toLocaleString()} readings</span></div>
+            </div>
+            <div class="tir-row">
+              <div class="tir-row-label"><div class="tir-row-dot" style="background:#f0a832"></div>Time above range</div>
+              <div><span class="tir-row-val" style="color:#f0a832">${t.highPct}%</span><span class="tir-row-count">&gt;${HIGH} mg/dL</span></div>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:10px">Dashed line = 70% in-range clinical goal</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Demo Data ─────────────────────────────────────────────────

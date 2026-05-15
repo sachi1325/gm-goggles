@@ -141,8 +141,10 @@ function parseTimestamp(raw) {
 }
 
 // ── Main CSV Entry Point ──────────────────────────────────────
-function parseCSV(content) {
-  // LibreView has a metadata row before the header — skip lines until we find the real header
+// ── Main CSV Entry Point ──────────────────────────────────────
+// filePath and modifiedMs are optional — when provided, parsed results are cached.
+function parseCSV(content, filePath, modifiedMs) {
+  // LibreView has a metadata row before the header — skip to real header
   const lines = content.split('\n');
   let startLine = 0;
   for (let i = 0; i < Math.min(5, lines.length); i++) {
@@ -166,6 +168,14 @@ function parseCSV(content) {
         return;
       }
       readings = data.sort((a, b) => a.ts - b.ts);
+      // Store in memory cache
+      if (filePath) {
+        setCache(filePath, modifiedMs, { readings, format: fmt.label });
+        // Write disk cache — serialize Date objects to ISO strings
+        const serialized = readings.map(r => ({ ts: r.ts.toISOString(), gl: r.gl }));
+        window.electronAPI.writeDiskCache({ filePath, modifiedMs, format: fmt.label, readings: serialized });
+        loadFileLibrary(); // refresh to show cache indicator
+      }
       renderDashboard();
     }
   });
