@@ -325,6 +325,106 @@ ipcMain.handle('call-anthropic', (event, { messages, model, max_tokens, apiKey }
   });
 });
 
+
+// ── Reports ──────────────────────────────────────────────────
+function profileReportsDir(id) {
+  const dir = path.join(profileDir(id), 'reports');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+ipcMain.handle('list-reports', () => {
+  if (!activeProfileId) return [];
+  const dir = profileReportsDir(activeProfileId);
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith('.pdf'))
+    .map(f => {
+      const full = path.join(dir, f);
+      const stat = fs.statSync(full);
+      return { name: f, filePath: full, size: stat.size, createdAt: stat.birthtimeMs || stat.mtimeMs };
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
+});
+
+ipcMain.handle('open-report', (event, filePath) => {
+  // Validate path is within active profile reports dir
+  if (!activeProfileId) return false;
+  const allowed = path.resolve(profileReportsDir(activeProfileId));
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(allowed + path.sep)) return false;
+  require('electron').shell.openPath(resolved);
+  return true;
+});
+
+ipcMain.handle('delete-report', (event, filePath) => {
+  if (!activeProfileId) return false;
+  const allowed = path.resolve(profileReportsDir(activeProfileId));
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(allowed + path.sep)) return false;
+  try { fs.unlinkSync(resolved); return true; } catch (e) { return false; }
+});
+
+ipcMain.handle('generate-pdf-report', async (event, { reportHtml, filename }) => {
+  if (!activeProfileId) return { error: 'No active profile' };
+  const reportsDir = profileReportsDir(activeProfileId);
+  const outPath = path.join(reportsDir, filename);
+
+  // Create a hidden window to render the HTML and print to PDF
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,  // needed so report page can use ipcRenderer directly
+    }
+  });
+
+  try {
+    // Wait for the report page to signal charts are ready
+    const chartsReady = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Chart render timeout')), 12000);
+      ipcMain.once('report-charts-ready', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    // Use loadURL with a temp file instead of data: URI to avoid length limits
+    // and ensure scripts run correctly in Electron's renderer
+    // Resolve absolute paths to local Chart.js builds (works offline, no CDN needed)
+    const nodeModulesPath = path.join(__dirname, 'node_modules');
+    const chartJsPath = path.join(nodeModulesPath, 'chart.js', 'dist', 'chart.umd.js').replace(/\\/g, '/');
+    const adapterPath = path.join(nodeModulesPath, 'chartjs-adapter-date-fns', 'dist', 'chartjs-adapter-date-fns.bundle.min.js').replace(/\\/g, '/');
+    const resolvedHtml = reportHtml
+      .replace('../node_modules/chart.js/dist/chart.umd.js', 'file:///' + chartJsPath)
+      .replace('../node_modules/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js', 'file:///' + adapterPath);
+
+    const tmpHtml = path.join(app.getPath('temp'), 'cgm-report-tmp.html');
+    fs.writeFileSync(tmpHtml, resolvedHtml);
+    await win.loadFile(tmpHtml);
+
+    // Wait for charts to signal they are done
+    await chartsReady;
+
+    // Small buffer for final paint
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    const pdfBuffer = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      landscape: false,
+      margins: { top: 0.6, bottom: 0.6, left: 0.6, right: 0.6 }
+    });
+
+    fs.writeFileSync(outPath, pdfBuffer);
+    try { fs.unlinkSync(tmpHtml); } catch (_) {}
+    win.close();
+    return { success: true, filePath: outPath, name: filename };
+  } catch (err) {
+    try { win.close(); } catch (_) {}
+    return { error: err.message };
+  }
+});
+
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

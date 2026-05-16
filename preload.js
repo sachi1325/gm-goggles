@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   callAnthropic:    (payload)       => ipcRenderer.invoke('call-anthropic', payload),
   // Events
   onFileLoaded:     (cb)            => ipcRenderer.on('file-loaded', (_, data) => cb(data)),
+  // Reports
+  listReports:      ()              => ipcRenderer.invoke('list-reports'),
+  openReport:       (filePath)      => ipcRenderer.invoke('open-report', filePath),
+  deleteReport:     (filePath)      => ipcRenderer.invoke('delete-report', filePath),
+  generatePdfReport:(payload)       => ipcRenderer.invoke('generate-pdf-report', payload),
   onLoadDemo:       (cb)            => ipcRenderer.on('load-demo', () => cb()),
   platform: process.platform
 });
